@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>轻压</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* 单列工具：上传 → 选参数（实时估算体积）→ 压缩进度 → 结果与下载 */
+:root {
+  --bg: #f3f5f2;
+  --surface: #ffffff;
+  --ink: #18201c;
+  --muted: #5c6862;
+  --line: #d9dfda;
+  --accent: #0d7a5f;
+  --accent-ink: #ffffff;
+  --accent-soft: #e0f0ea;
+  --warn: #9a5b00;
+  --warn-soft: #fbf0dc;
+  --bad: #b3261e;
+  --font-body: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111613; --surface: #1a211d; --ink: #e6ece8; --muted: #9aa69f; --line: #2c3631;
+    --accent: #3fc29c; --accent-ink: #08130e; --accent-soft: #173229; --warn: #f0b860; --warn-soft: #33270f; --bad: #ff8a80;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111613; --surface: #1a211d; --ink: #e6ece8; --muted: #9aa69f; --line: #2c3631;
+  --accent: #3fc29c; --accent-ink: #08130e; --accent-soft: #173229; --warn: #f0b860; --warn-soft: #33270f; --bad: #ff8a80;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 48px;
+}
+main { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+header h1 { font-size: 28px; margin: 0; letter-spacing: 0.02em; text-wrap: balance; }
+header p { margin: 4px 0 0; color: var(--muted); }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+.drop {
+  border: 2px dashed var(--line); border-radius: 12px; background: var(--surface);
+  padding: 28px 20px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+}
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.drop strong { display: block; font-size: 17px; }
+.drop span { color: var(--muted); font-size: 13px; }
+.file-row { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; justify-content: center; }
+.file-name { font-weight: 600; word-break: break-all; }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 16px; }
+.panel h2 { font-size: 13px; letter-spacing: 0.08em; color: var(--muted); margin: 0; font-weight: 600; }
+.field { display: flex; flex-direction: column; gap: 8px; }
+.field > label { font-weight: 600; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg label {
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 14px;
+  display: flex; flex-direction: column; line-height: 1.3; min-width: 0;
+}
+.seg label small { color: var(--muted); font-size: 12px; }
+.seg input:checked + label { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.seg input:focus-visible + label { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.estimate { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; border-top: 1px solid var(--line); padding-top: 14px; }
+.estimate div { display: flex; flex-direction: column; min-width: 0; }
+.estimate dt { font-size: 12px; color: var(--muted); }
+.estimate dd { margin: 0; font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
+.estimate .big dd { color: var(--accent); }
+.tag { display: inline-block; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; }
+
+button.primary {
+  appearance: none; border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-ink);
+  font: inherit; font-weight: 600; font-size: 16px; padding: 12px 18px; cursor: pointer;
+}
+button.primary:disabled { opacity: .45; cursor: not-allowed; }
+button.ghost { appearance: none; background: none; border: 1px solid var(--line); color: var(--ink); border-radius: 10px; font: inherit; padding: 10px 16px; cursor: pointer; }
+button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.bar { height: 10px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.progress-meta { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; gap: 8px; flex-wrap: wrap; }
+
+.note { border-radius: 10px; padding: 10px 14px; font-size: 14px; background: var(--warn-soft); color: var(--warn); }
+.note.bad { color: var(--bad); }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+video { width: 100%; max-width: 100%; border-radius: 8px; background: #000; max-height: 360px; }
+@media (max-width: 420px) { .estimate { grid-template-columns: 1fr 1fr; } .estimate .big { grid-column: 1 / -1; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<main>
+  <header>
+    <h1>轻压</h1>
+    <p>视频在你自己的浏览器里压缩，不会上传到任何服务器。</p>
+  </header>
+
+  <div class="drop" id="drop" tabindex="0" role="button" aria-label="选择视频文件">
+    <input type="file" id="file" accept="video/*,.mp4,.mov,.webm,.mkv" hidden>
+    <div id="dropEmpty">
+      <strong>点这里选视频，或把视频拖进来</strong>
+      <span>支持 MP4、MOV、WebM 等常见格式，录屏文件也可以</span>
+    </div>
+    <div id="dropFile" hidden>
+      <div class="file-row"><span class="file-name" id="fName"></span><span class="num" id="fSize"></span></div>
+      <span id="fInfo" class="num"></span><br>
+      <span>点这里换一个视频</span>
+    </div>
+  </div>
+
+  <section class="panel" aria-labelledby="setTitle">
+    <h2 id="setTitle">压缩设置</h2>
+    <div class="field">
+      <label>清晰度</label>
+      <div class="seg" role="radiogroup">
+        <input type="radio" name="res" id="res-keep" value="keep"><label for="res-keep">原始<small>不缩小</small></label>
+        <input type="radio" name="res" id="res-1080" value="1080" checked><label for="res-1080">1080p<small>适合剪辑</small></label>
+        <input type="radio" name="res" id="res-720" value="720"><label for="res-720">720p<small>手机看足够</small></label>
+        <input type="radio" name="res" id="res-480" value="480"><label for="res-480">480p<small>体积最小</small></label>
+      </div>
+    </div>
+    <div class="field">
+      <label>压缩力度</label>
+      <div class="seg" role="radiogroup">
+        <input type="radio" name="lvl" id="lvl-high" value="0.1"><label for="lvl-high">画质优先<small>轻微压缩</small></label>
+        <input type="radio" name="lvl" id="lvl-mid" value="0.06" checked><label for="lvl-mid">均衡<small>推荐</small></label>
+        <input type="radio" name="lvl" id="lvl-low" value="0.035"><label for="lvl-low">体积优先<small>画质会差一些</small></label>
+      </div>
+    </div>
+    <div class="field">
+      <label>帧率</label>
+      <div class="seg" role="radiogroup">
+        <input type="radio" name="fps" id="fps-30" value="30" checked><label for="fps-30">最高 30 帧<small>录屏常是 60 帧，降到 30 体积减半</small></label>
+        <input type="radio" name="fps" id="fps-keep" value="keep"><label for="fps-keep">保持原帧率</label>
+      </div>
+    </div>
+    <dl class="estimate">
+      <div><dt>输出分辨率</dt><dd class="num" id="eRes">—</dd></div>
+      <div><dt>原文件</dt><dd class="num" id="eSrc">—</dd></div>
+      <div class="big"><dt>预计压缩后</dt><dd class="num" id="eOut">—</dd></div>
+    </dl>
+    <p class="hint" id="eHint"><span class="tag">示例</span> 10 分钟 1080p 60 帧录屏，约 1.2 GB → 按当前设置约 <span class="num" id="eSample">—</span></p>
+    <div id="warnBox" class="note" hidden></div>
+    <div class="actions">
+      <button class="primary" id="go" disabled>开始压缩</button>
+    </div>
+  </section>
+
+  <section class="panel" id="runPanel" hidden aria-live="polite">
+    <h2>正在压缩</h2>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="progress-meta"><span class="num" id="pPct">0%</span><span id="pEta">准备中…</span></div>
+    <p class="hint">压缩期间请保持这个页面在前台，切到别的标签页会变慢。</p>
+    <div class="actions"><button class="ghost" id="cancel">取消</button></div>
+  </section>
+
+  <section class="panel" id="donePanel" hidden aria-live="polite">
+    <h2>压缩完成</h2>
+    <dl class="estimate">
+      <div><dt>原文件</dt><dd class="num" id="dSrc"></dd></div>
+      <div><dt>压缩后</dt><dd class="num" id="dOut"></dd></div>
+      <div class="big"><dt>缩小了</dt><dd class="num" id="dRatio"></dd></div>
+    </dl>
+    <video id="preview" controls playsinline hidden></video>
+    <div id="doneWarn" class="note" hidden></div>
+    <div class="actions">
+      <button class="primary" id="save">下载压缩后的视频</button>
+      <button class="ghost" id="again">再压一个</button>
+    </div>
+    <p class="hint" id="saveHint"></p>
+  </section>
+
+  <div id="errBox" class="note bad" hidden></div>
+</main>
+
+<script type="module">
+const $ = id => document.getElementById(id);
+const CDN = "https://cdn.jsdelivr.net/npm/mediabunny@1.60.0/dist/bundles/mediabunny.min.mjs";
+const AUDIO_BPS = 128000;
+
+let MB = null;
+let file = null, info = null, conv = null, outBlob = null, previewUrl = null, startedAt = 0, wakeLock = null;
+
+function fmtSize(b) {
+  if (b >= 1024 ** 3) return (b / 1024 ** 3).toFixed(2) + " GB";
+  if (b >= 1024 ** 2) return (b / 1024 ** 2).toFixed(b >= 100 * 1024 ** 2 ? 0 : 1) + " MB";
+  return Math.max(1, Math.round(b / 1024)) + " KB";
+}
+function fmtDur(s) {
+  s = Math.round(s);
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+  return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(sec).padStart(2, "0");
+}
+const even = n => Math.max(2, Math.round(n / 2) * 2);
+const val = name => document.querySelector(`input[name="${name}"]:checked`).value;
+function showErr(msg) { $("errBox").textContent = msg; $("errBox").hidden = !msg; }
+
+// 根据设置算出输出参数；src 为 {w,h,fps,dur}
+function plan(src) {
+  const res = val("res"), bpp = +val("lvl"), fpsSel = val("fps");
+  const short = Math.min(src.w, src.h);
+  const scale = res === "keep" ? 1 : Math.min(1, +res / short);
+  const w = even(src.w * scale), h = even(src.h * scale);
+  const fps = fpsSel === "30" ? Math.min(30, src.fps) : src.fps;
+  const bitrate = Math.max(300000, Math.round(bpp * w * h * fps));
+  return { w, h, fps, bitrate, capFps: fpsSel === "30" && src.fps > 30.5, bytes: (bitrate + AUDIO_BPS) * src.dur / 8 };
+}
+
+function refresh() {
+  const sample = plan({ w: 1920, h: 1080, fps: 60, dur: 600 });
+  $("eSample").textContent = fmtSize(sample.bytes);
+  const warn = $("warnBox");
+  warn.hidden = true;
+  if (!info) return;
+  const p = plan(info);
+  $("eRes").textContent = `${p.w}×${p.h}`;
+  $("eSrc").textContent = fmtSize(file.size);
+  $("eOut").textContent = "约 " + fmtSize(p.bytes);
+  if (p.bytes >= file.size * 0.9) {
+    warn.textContent = "按这个设置，压缩后不会比原文件小多少。可以选更低的清晰度，或者改成“体积优先”。";
+    warn.hidden = false;
+  }
+}
+
+async function loadLib() {
+  if (MB) return MB;
+  try { MB = await import(CDN); return MB; }
+  catch { throw new Error("压缩组件没加载出来，请检查网络后刷新页面。"); }
+}
+
+async function pick(f) {
+  if (!f) return;
+  showErr("");
+  $("donePanel").hidden = true;
+  file = f; info = null;
+  $("dropEmpty").hidden = true; $("dropFile").hidden = false;
+  $("fName").textContent = f.name; $("fSize").textContent = fmtSize(f.size);
+  $("fInfo").textContent = "正在读取视频信息…";
+  $("go").disabled = true;
+  try {
+    const { Input, BlobSource, ALL_FORMATS } = await loadLib();
+    const input = new Input({ source: new BlobSource(f), formats: ALL_FORMATS });
+    const vt = await input.getPrimaryVideoTrack();
+    if (!vt) throw new Error("这个文件里没有找到视频画面，请换一个视频文件。");
+    const [dur, stats] = await Promise.all([input.computeDuration(), vt.computePacketStats(120)]);
+    const fps = Math.round((stats.averagePacketRate || 30) * 100) / 100;
+    info = { w: vt.displayWidth, h: vt.displayHeight, fps, dur };
+    $("fInfo").textContent = `${info.w}×${info.h} · ${Math.round(fps)} 帧 · 时长 ${fmtDur(dur)}`;
+    $("go").disabled = false;
+    refresh();
+  } catch (e) {
+    $("fInfo").textContent = "";
+    showErr(e.message?.startsWith("这") || e.message?.startsWith("压缩") ? e.message : "读不出这个视频，格式可能不支持。换成 MP4 再试试。");
+  }
+}
+
+async function run() {
+  if (!file || !info) return;
+  showErr("");
+  const p = plan(info);
+  const { Input, Output, Conversion, BlobSource, BufferTarget, Mp4OutputFormat, ALL_FORMATS, Quality, getFirstEncodableVideoCodec } = await loadLib();
+  const codec = await getFirstEncodableVideoCodec(["avc", "hevc", "vp9", "av1"], { width: p.w, height: p.h, bitrate: p.bitrate });
+  if (!codec) { showErr("这个浏览器不支持视频编码。请用电脑上最新版的 Chrome 或 Edge 打开这个页面。"); return; }
+
+  const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+  const output = new Output({ format: new Mp4OutputFormat({ fastStart: "in-memory" }), target: new BufferTarget() });
+  try {
+    conv = await Conversion.init({
+      input, output, showWarnings: false,
+      video: {
+        width: p.w, height: p.h, fit: "contain", codec, forceTranscode: true,
+        frameRate: p.capFps ? 30 : undefined,
+        quality: new Quality({ bitrate: p.bitrate }),
+      },
+    });
+  } catch (e) { showErr("没法开始压缩：" + (e.message || e)); return; }
+  if (!conv.isValid) { showErr("这个视频的编码格式浏览器处理不了。用电脑上最新版的 Chrome 或 Edge 再试一次。"); return; }
+  const lostAudio = conv.discardedTracks.some(d => d.track.type === "audio" && d.reason !== "discarded_by_user");
+
+  $("runPanel").hidden = false; $("go").disabled = true; $("barFill").style.width = "0";
+  $("pPct").textContent = "0%"; $("pEta").textContent = "准备中…";
+  startedAt = performance.now();
+  try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
+  conv.onProgress = pr => {
+    $("barFill").style.width = (pr * 100).toFixed(1) + "%";
+    $("pPct").textContent = Math.floor(pr * 100) + "%";
+    const spent = (performance.now() - startedAt) / 1000;
+    if (pr > 0.02) $("pEta").textContent = "大约还要 " + fmtDur(spent / pr - spent);
+  };
+  try {
+    await conv.execute();
+  } catch (e) {
+    $("runPanel").hidden = true; $("go").disabled = false; conv = null;
+    wakeLock?.release?.().catch(() => {});
+    if (e?.name !== "ConversionCanceledError" && !/cancel/i.test(e?.message || "")) showErr("压缩中途出错了：" + (e.message || e));
+    return;
+  }
+  wakeLock?.release?.().catch(() => {});
+  conv = null;
+  outBlob = new Blob([output.target.buffer], { type: "video/mp4" });
+  showDone(lostAudio);
+}
+
+function showDone(lostAudio) {
+  $("runPanel").hidden = true; $("go").disabled = false; $("donePanel").hidden = false;
+  $("dSrc").textContent = fmtSize(file.size);
+  $("dOut").textContent = fmtSize(outBlob.size);
+  const r = 1 - outBlob.size / file.size;
+  $("dRatio").textContent = r > 0 ? Math.round(r * 100) + "%" : "没有变小";
+  const w = $("doneWarn");
+  w.hidden = !lostAudio;
+  w.textContent = lostAudio ? "这个浏览器处理不了原视频的声音，压缩后的视频没有声音。用电脑上的 Chrome 或 Edge 可以保留声音。" : "";
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl = URL.createObjectURL(outBlob);
+  const v = $("preview");
+  v.onerror = () => { v.hidden = true; };
+  v.src = previewUrl; v.hidden = false;
+  $("saveHint").textContent = "";
+  $("donePanel").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function save() {
+  const hint = $("saveHint");
+  const base = file.name.replace(/\.[^.]+$/, "");
+  const downloads = await window.claude?.use?.("downloads");
+  if (!downloads) {
+    // 普通网页（如 GitHub Pages）直接用浏览器下载
+    const a = document.createElement("a");
+    a.href = previewUrl; a.download = `${base}_压缩.mp4`;
+    document.body.appendChild(a); a.click(); a.remove();
+    hint.textContent = "已经交给浏览器下载了。";
+    return;
+  }
+  try {
+    await downloads.save({ filename: `${base}_压缩.mp4`, data: outBlob });
+    hint.textContent = "已经交给浏览器下载了。";
+  } catch (e) {
+    hint.textContent = e?.code === "declined" ? "你取消了下载，需要的话再点一次。"
+      : e?.code === "rate_limited" ? "下载窗口还开着，请先处理那个窗口。"
+      : "下载没有成功，请再点一次试试。";
+  }
+}
+
+const drop = $("drop"), fileInput = $("file");
+drop.addEventListener("click", () => fileInput.click());
+drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); } });
+fileInput.addEventListener("change", () => { pick(fileInput.files[0]); fileInput.value = ""; });
+["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => pick(e.dataTransfer.files[0]));
+document.querySelectorAll(".seg input").forEach(i => i.addEventListener("change", refresh));
+$("go").addEventListener("click", run);
+$("cancel").addEventListener("click", () => conv?.cancel());
+$("save").addEventListener("click", save);
+$("again").addEventListener("click", () => fileInput.click());
+refresh();
+loadLib().catch(e => showErr(e.message));
+</script>
+</body>
+</html>
